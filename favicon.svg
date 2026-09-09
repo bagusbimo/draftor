@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>Draftor</title>
+  <rect width="64" height="64" rx="16" fill="#071018" />
+  <path d="M17 16h18c7.18 0 12 3.6 12 9.5 0 3.75-2.15 6.55-5.75 8.05C45.2 35 48 38.1 48 42.25 48 48.2 43.05 52 35.5 52H17V16Zm9 7v7.5h8.5c2.9 0 4.7-1.35 4.7-3.75S37.4 23 34.5 23H26Zm0 14.5V45h9.5c3.15 0 5-1.35 5-3.75s-1.85-3.75-5-3.75H26Z" fill="#f3efe8" />
+  <path d="M13 12h8v40h-8z" fill="#85d6c7" />
+  <circle cx="51" cy="13" r="5" fill="#f56a3d" />
+</svg>

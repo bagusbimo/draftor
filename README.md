@@ -9,6 +9,7 @@ Frontend-only Dota 2 draft assistant for captains-mode style 5v5 lineups.
 - Generates your five-role lineup automatically from the enemy draft.
 - Scores recommendations with a deterministic model that balances counter value, synergy, and position fit.
 - Uses a role-first constraint for support slots: non-carry support heroes are selected before counter strength is considered. A carry is only used if no eligible support hero exists.
+- Prioritizes counter pressure against enemy cores in order: hard carry, mid lane, off lane, then soft and hard support.
 - Shows whether the bundled local dataset matches the current Dota 2 patch.
 
 ## Run

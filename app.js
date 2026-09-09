@@ -633,6 +633,16 @@ function getTeamHeroes(team) {
   return slots.map((heroId) => (heroId ? state.heroById.get(heroId) : null)).filter(Boolean);
 }
 
+function getTeamAssignments(team) {
+  const slots = getSlots(team);
+  return slots
+    .map((heroId, index) => {
+      const hero = heroId ? state.heroById.get(heroId) : null;
+      return hero ? { hero, draftRole: DRAFT_ROLES[index], index } : null;
+    })
+    .filter(Boolean);
+}
+
 function getSlots(team) {
   return team === "ally" ? state.allySlots : state.enemySlots;
 }
@@ -689,6 +699,7 @@ async function ensureEnemyMatchupsLoaded(enemyHeroes) {
 function generateSuggestedLineup(enemyHeroes) {
   const selectedAllies = [];
   const selectedAssignments = [];
+  const enemyAssignments = getTeamAssignments("enemy");
   const generatedSlots = Array.from({ length: SLOT_COUNT }, () => null);
   const generatedPicks = Array.from({ length: SLOT_COUNT }, () => null);
 
@@ -698,7 +709,7 @@ function generateSuggestedLineup(enemyHeroes) {
       .filter((hero) => !enemyHeroes.includes(hero) && !selectedAllies.includes(hero))
       .map((hero) => ({
         hero,
-        ...scoreCandidate(hero, selectedAllies, enemyHeroes, matchupMaps, draftRole, selectedAssignments),
+        ...scoreCandidate(hero, selectedAllies, enemyHeroes, matchupMaps, draftRole, selectedAssignments, enemyAssignments),
       }))
       .sort((a, b) => b.score - a.score || a.hero.localized_name.localeCompare(b.hero.localized_name));
 
@@ -765,12 +776,13 @@ function buildRecommendations(allyHeroes, enemyHeroes) {
   const allyAssignments = state.suggestedPicks
     .filter(Boolean)
     .map((pick) => ({ hero: pick.hero, draftRole: pick.role }));
+  const enemyAssignments = getTeamAssignments("enemy");
 
   return state.heroes
     .filter((hero) => !pickedIds.has(hero.id))
     .map((hero) => ({
       hero,
-      ...scoreCandidate(hero, allyHeroes, enemyHeroes, matchupMaps, null, allyAssignments),
+      ...scoreCandidate(hero, allyHeroes, enemyHeroes, matchupMaps, null, allyAssignments, enemyAssignments),
     }))
     .sort((a, b) => b.score - a.score || a.hero.localized_name.localeCompare(b.hero.localized_name));
 }
@@ -784,20 +796,26 @@ function buildMatchupMaps(enemyHeroes) {
   );
 }
 
-function scoreCandidate(hero, allyHeroes, enemyHeroes, matchupMaps, draftRole = null, allyAssignments = []) {
-  const enemySignals = enemyHeroes.map((enemyHero) => {
+function scoreCandidate(hero, allyHeroes, enemyHeroes, matchupMaps, draftRole = null, allyAssignments = [], enemyAssignments = []) {
+  const enemyContexts = enemyAssignments.length
+    ? enemyAssignments
+    : enemyHeroes.map((enemyHero, index) => ({ hero: enemyHero, draftRole: DRAFT_ROLES[index] }));
+  const enemySignals = enemyContexts.map(({ hero: enemyHero, draftRole: enemyRole }) => {
     const matchup = matchupMaps.get(enemyHero.id)?.get(hero.id) || { hero_id: hero.id, games_played: 0, wins: 0 };
-    return scoreAgainstEnemy(hero, enemyHero, matchup);
+    return {
+      ...scoreAgainstEnemy(hero, enemyHero, matchup),
+      weight: getEnemyCounterWeight(enemyRole),
+    };
   });
 
   const allySignals = allyHeroes.map((allyHero) => scoreWithAlly(hero, allyHero));
-  const counterAverage = average(enemySignals.map((entry) => entry.total));
+  const counterAverage = weightedAverage(enemySignals, "total");
   const synergyAverage = average(allySignals.map((entry) => entry.total));
   const draftNeed = computeTeamNeed(hero, allyHeroes);
   const draftShape = computeDraftShape(hero, allyHeroes, enemyHeroes);
   const positionFit = draftRole ? computePositionFit(hero, draftRole.role) : 0;
   const laneSynergy = computeLaningSynergy(hero, draftRole, allyAssignments);
-  const coverageBonus = enemySignals.length ? (enemySignals.filter((entry) => entry.total > 0).length / enemySignals.length) * 4 : 0;
+  const coverageBonus = enemySignals.length ? weightedAverage(enemySignals.map((entry) => ({ value: entry.total > 0 ? 1 : 0, weight: entry.weight })), "value") * 4 : 0;
   const synergyCoverage = allySignals.length ? (allySignals.filter((entry) => entry.total > 0).length / allySignals.length) * 3 : 0;
   const consistencyBonus = computeConsistencyBonus(enemySignals);
   const finalScore =
@@ -833,8 +851,26 @@ function scoreCandidate(hero, allyHeroes, enemyHeroes, matchupMaps, draftRole = 
 
 function weightedWinRate(signals) {
   const totalGames = signals.reduce((sum, signal) => sum + signal.games, 0);
-  if (!totalGames) return average(signals.map((signal) => signal.winRate));
-  return signals.reduce((sum, signal) => sum + signal.wins, 0) / totalGames;
+  if (!totalGames) return weightedAverage(signals, "winRate");
+  return signals.reduce((sum, signal) => sum + signal.wins * signal.weight, 0) /
+    signals.reduce((sum, signal) => sum + signal.games * signal.weight, 0);
+}
+
+function weightedAverage(entries, valueKey) {
+  const totalWeight = entries.reduce((sum, entry) => sum + (entry.weight ?? 1), 0);
+  if (!totalWeight) return 0;
+  return entries.reduce((sum, entry) => sum + entry[valueKey] * (entry.weight ?? 1), 0) / totalWeight;
+}
+
+function getEnemyCounterWeight(draftRole) {
+  if (!draftRole) return 0.5;
+  return {
+    carry: 1,
+    mid: 0.9,
+    offlane: 0.8,
+    "soft-support": 0.35,
+    "hard-support": 0.25,
+  }[draftRole.role] || 0.5;
 }
 
 function computeLaningSynergy(hero, draftRole, allyAssignments) {
