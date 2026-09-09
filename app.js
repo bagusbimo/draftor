@@ -2,6 +2,7 @@ const API_BASE = "https://api.opendota.com/api";
 const LOCAL_HEROES_URL = "./data/local-heroes.json";
 const LOCAL_MATCHUPS_URL = "./data/local-matchups.json";
 const LOCAL_MANIFEST_URL = "./data/local-manifest.json";
+const LOCAL_COUNTER_REASONS_URL = "./data/counter-reasons.json";
 const LOCAL_PATCH_FALLBACK = "unknown";
 const HERO_IMG_BASE = "https://cdn.cloudflare.steamstatic.com";
 const TEAM_ORDER = ["enemy", "ally"];
@@ -17,10 +18,10 @@ const DRAFT_ROLES = [
   { label: "Hard support", lane: "Safe lane", role: "hard-support" },
 ];
 const ROLE_ORDER = ["Carry", "Support", "Initiator", "Disabler", "Nuker", "Durable", "Escape", "Pusher"];
-const FILTERS = ["All", ...ROLE_ORDER];
 const SLOT_COUNT = 5;
 
 const state = {
+  dataMode: window.localStorage.getItem("draftor-data-mode") || "auto",
   heroes: [],
   heroById: new Map(),
   allySlots: Array.from({ length: SLOT_COUNT }, () => null),
@@ -30,7 +31,6 @@ const state = {
   recommendations: [],
   suggestedPicks: Array.from({ length: SLOT_COUNT }, () => null),
   search: "",
-  roleFilter: "All",
   loadingHeroes: true,
   loadingDraft: false,
   error: "",
@@ -45,6 +45,7 @@ const state = {
   cache: {
     heroes: null,
     matchupByHeroId: new Map(),
+    counterReasonsByEnemy: new Map(),
   },
 };
 
@@ -61,21 +62,20 @@ init().catch((error) => {
 async function init() {
   bindElements();
   bindEvents();
-  renderFilters();
+  updateDataSourceSwitch();
   renderAll();
-  await Promise.all([loadHeroes(), loadPatchStatus()]);
+  await Promise.all([loadHeroes(), loadPatchStatus(), loadCounterReasons()]);
 }
 
 function bindElements() {
   els.search = document.getElementById("hero-search");
   els.suggestions = document.getElementById("hero-suggestions");
-  els.roleFilters = document.getElementById("role-filters");
   els.draftBoard = document.getElementById("draft-board");
   els.snapshot = document.getElementById("draft-snapshot");
   els.recommendations = document.getElementById("recommendations");
   els.statusPill = document.getElementById("status-pill");
   els.patchStatus = document.getElementById("patch-status");
-  els.activeSlotLabel = document.getElementById("active-slot-label");
+  els.dataSourceSwitch = document.getElementById("data-source-switch");
 }
 
 function bindEvents() {
@@ -99,6 +99,34 @@ function bindEvents() {
       }
     }
   });
+
+  els.dataSourceSwitch.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-data-mode]");
+    if (!button || button.dataset.dataMode === state.dataMode) return;
+    setDataMode(button.dataset.dataMode);
+  });
+}
+
+function setDataMode(mode) {
+  state.dataMode = ["auto", "opendota", "local"].includes(mode) ? mode : "auto";
+  window.localStorage.setItem("draftor-data-mode", state.dataMode);
+  state.cache.heroes = null;
+  state.cache.matchupByHeroId.clear();
+  state.heroes = [];
+  state.heroById = new Map();
+  state.loadingHeroes = true;
+  state.error = "";
+  updateDataSourceSwitch();
+  loadHeroes().then(() => refreshRecommendations());
+}
+
+function updateDataSourceSwitch() {
+  if (!els.dataSourceSwitch) return;
+  for (const button of els.dataSourceSwitch.querySelectorAll("[data-data-mode]")) {
+    const isActive = button.dataset.dataMode === state.dataMode;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-pressed", String(isActive));
+  }
 }
 
 async function loadHeroes() {
@@ -107,13 +135,22 @@ async function loadHeroes() {
   renderAll();
 
   try {
-    const heroes = await fetchJSON(`${API_BASE}/heroStats`);
-    applyHeroes(heroes, "opendota");
+    const localOnly = state.dataMode === "local";
+    const heroes = await fetchJSON(localOnly ? LOCAL_HEROES_URL : `${API_BASE}/heroStats`);
+    applyHeroes(heroes, localOnly ? "local" : "opendota");
     state.loadingHeroes = false;
     setStatus(`Loaded ${formatNumber.format(state.heroes.length)} heroes`, "is-ready");
     renderAll();
   } catch (error) {
     console.error(error);
+    if (state.dataMode === "opendota") {
+      state.loadingHeroes = false;
+      state.error = "OpenDota hero data is unavailable. Switch to Local or Auto mode.";
+      setStatus("OpenDota unavailable", "is-error");
+      renderAll();
+      return;
+    }
+
     try {
       const localHeroes = await fetchJSON(LOCAL_HEROES_URL);
       applyHeroes(localHeroes, "local");
@@ -164,6 +201,20 @@ async function loadPatchStatus() {
   }
 
   renderPatchStatus();
+}
+
+async function loadCounterReasons() {
+  try {
+    const payload = await fetchJSON(LOCAL_COUNTER_REASONS_URL);
+    const records = Array.isArray(payload?.records) ? payload.records : [];
+    state.cache.counterReasonsByEnemy = new Map();
+    for (const record of records) {
+      const counters = new Map((record.counters || []).map((counter) => [counter.hero, counter]));
+      state.cache.counterReasonsByEnemy.set(record.enemyHero, counters);
+    }
+  } catch (error) {
+    console.warn("Local counter explanations could not be loaded", error);
+  }
 }
 
 function getLatestPatch(patches) {
@@ -265,12 +316,21 @@ async function loadMatchups(heroId) {
   }
 
   let matchups;
+  if (state.dataMode === "local") {
+    const localMatchups = await fetchJSON(LOCAL_MATCHUPS_URL);
+    matchups = parseLocalMatchups(localMatchups, heroId);
+    state.matchupSource = "local";
+    state.cache.matchupByHeroId.set(heroId, matchups);
+    return matchups;
+  }
+
   try {
     matchups = await fetchJSON(`${API_BASE}/heroes/${heroId}/matchups`);
     if (!Array.isArray(matchups)) throw new Error("OpenDota returned invalid matchup data");
     state.matchupSource = "opendota";
   } catch (error) {
     console.warn(`OpenDota matchups unavailable for hero ${heroId}`, error);
+    if (state.dataMode === "opendota") throw error;
     const localMatchups = await fetchJSON(LOCAL_MATCHUPS_URL).catch(() => ({}));
     matchups = parseLocalMatchups(localMatchups, heroId);
     state.matchupSource = "local";
@@ -308,22 +368,6 @@ function renderAll() {
   renderSnapshot();
   renderRecommendations();
   renderPatchStatus();
-}
-
-function renderFilters() {
-  els.roleFilters.innerHTML = "";
-  for (const filter of FILTERS) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = filter === state.roleFilter ? "chip is-active" : "chip";
-    button.textContent = filter;
-    button.addEventListener("click", () => {
-      state.roleFilter = filter;
-      renderFilters();
-      renderRecommendations();
-    });
-    els.roleFilters.appendChild(button);
-  }
 }
 
 function renderDraftBoard() {
@@ -403,7 +447,6 @@ function renderDraftBoard() {
 
   }
 
-  els.activeSlotLabel.textContent = `${TEAM_META[state.activeTeam].label} ${state.activeSlot + 1}`;
 }
 
 function renderHeroSearch() {
@@ -426,20 +469,38 @@ function renderHeroSearch() {
     return;
   }
 
-  for (const hero of matches) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "hero-option";
-    button.innerHTML = `
-      <img class="hero-option__icon" src="${heroImage(hero)}" alt="" loading="lazy" />
-      <div class="hero-option__copy">
-        <div class="hero-option__name">${escapeHTML(hero.localized_name)}</div>
-        <div class="hero-option__meta">${escapeHTML(hero.roles.join(" • "))}</div>
-      </div>
-    `;
-    button.addEventListener("click", () => selectHero(hero.id));
-    els.suggestions.appendChild(button);
+  const groups = [
+    ["str", "Strength"],
+    ["agi", "Agility"],
+    ["int", "Intelligence"],
+    ["all", "Universal"],
+  ];
+  const pool = document.createElement("div");
+  pool.className = "hero-pool";
+
+  for (const [attribute, label] of groups) {
+    const heroes = matches.filter((hero) => hero.primary_attr === attribute);
+    if (!heroes.length) continue;
+
+    const group = document.createElement("section");
+    group.className = `hero-group hero-group--${attribute}`;
+    group.innerHTML = `<h3 class="hero-group__title">${escapeHTML(label)}</h3><div class="hero-group__grid"></div>`;
+    const grid = group.querySelector(".hero-group__grid");
+
+    for (const hero of heroes) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "hero-grid-card";
+      button.title = hero.localized_name;
+      button.setAttribute("aria-label", `Select ${hero.localized_name}`);
+      button.innerHTML = `<img src="${heroImage(hero)}" alt="" loading="lazy" />`;
+      button.addEventListener("click", () => selectHero(hero.id));
+      grid.appendChild(button);
+    }
+    pool.appendChild(group);
   }
+
+  els.suggestions.appendChild(pool);
 }
 
 function renderSnapshot() {
@@ -551,14 +612,7 @@ function renderRecommendations() {
     return;
   }
 
-  const recommendations = state.recommendations.filter((item) =>
-    state.roleFilter === "All" ? true : item.hero.roles.includes(state.roleFilter),
-  );
-
-  if (!recommendations.length) {
-    els.recommendations.innerHTML = `<div class="empty-recs">No heroes match the current role filter.</div>`;
-    return;
-  }
+  const recommendations = state.recommendations;
 
   recommendations.slice(0, 12).forEach((item, index) => {
     const row = document.createElement("article");
@@ -722,7 +776,7 @@ function generateSuggestedLineup(enemyHeroes) {
         ...best,
         role: draftRole,
         alternatives: roleCandidates.filter((candidate) => candidate.hero.id !== best.hero.id).slice(0, 3),
-        explanation: selection.reason ? `${best.explanation} ${selection.reason}` : best.explanation,
+        explanation: best.explanation,
       };
       selectedAllies.push(best.hero);
       selectedAssignments.push({ hero: best.hero, draftRole });
@@ -748,18 +802,15 @@ function getRoleCandidatePool(candidates, draftRole) {
 function selectRoleCandidate(candidates, draftRole) {
   const first = candidates[0];
   if (!first || !["soft-support", "hard-support"].includes(draftRole.role)) {
-    return { candidate: first, reason: "" };
+    return { candidate: first };
   }
 
   // Support slots are role-gated first; counter strength cannot replace the role.
   const supportCandidates = candidates.filter((candidate) => isSupportSlotCandidate(candidate.hero));
   const bestSupport = supportCandidates[0];
-  if (!bestSupport) return { candidate: first, reason: "No support-tagged hero was available for this slot." };
+  if (!bestSupport) return { candidate: first };
 
-  return {
-    candidate: bestSupport,
-    reason: "Role-first selection; support fit takes priority over counter strength for this slot.",
-  };
+  return { candidate: bestSupport };
 }
 
 function isSupportHero(hero) {
@@ -847,6 +898,40 @@ function scoreCandidate(hero, allyHeroes, enemyHeroes, matchupMaps, draftRole = 
     breakdown,
     explanation: buildExplanation(hero, allyHeroes, enemyHeroes, enemySignals, allySignals, breakdown, draftRole, laneSynergy, allyAssignments),
   };
+}
+
+function heroSlug(hero) {
+  const slug = String(hero?.localized_name || hero?.name || "")
+    .replace(/^npc_dota_hero_/, "")
+    .toLowerCase()
+    .replace(/[’']/g, "")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return {
+    outworld_devourer: "outworld_destroyer",
+    centaur_warrunner: "centaur_bloodrunner",
+  }[slug] || slug;
+}
+
+function getCounterReason(hero, enemyHeroes, enemySignals = []) {
+  const candidateSlug = heroSlug(hero);
+  const orderedEnemies = enemyHeroes
+    .map((enemy, index) => ({ enemy, signal: enemySignals[index] }))
+    .sort((a, b) => (b.signal?.total || 0) - (a.signal?.total || 0))
+    .map(({ enemy }) => enemy);
+
+  for (const enemy of orderedEnemies) {
+    const counter = state.cache.counterReasonsByEnemy.get(heroSlug(enemy))?.get(candidateSlug);
+    if (counter?.reasons?.length) {
+      return {
+        enemy,
+        text: counter.reasons.join(" "),
+        exact: true,
+      };
+    }
+  }
+
+  return null;
 }
 
 function weightedWinRate(signals) {
@@ -1174,6 +1259,11 @@ function buildExplanation(
     .map((entry, index) => ({ ...entry, allyHero: allyHeroes[index] }))
     .sort((a, b) => b.total - a.total)[0];
   const missingRoles = getMissingRoles(allyHeroes);
+  const counterReason = getCounterReason(hero, enemyHeroes, enemySignals);
+
+  if (counterReason) {
+    parts.push(counterReason.text);
+  }
 
   if (bestEnemy?.enemyHero) {
     parts.push(`${hero.localized_name} is strong into ${bestEnemy.enemyHero.localized_name}.`);
@@ -1254,7 +1344,7 @@ function getVisibleHeroes() {
         hero.name.toLowerCase().includes(query),
       )
     : state.heroes;
-  return visible.slice(0, 14);
+  return visible;
 }
 
 function findNextEmptySlot(team, startIndex) {

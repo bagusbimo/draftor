@@ -23,17 +23,23 @@
             <h1>Pick then Counter</h1>
           </div>
           <div class="header-meta">
+            <div class="data-source-control">
+              <span class="data-source-control__label">Matchup data</span>
+              <div
+                id="data-source-switch"
+                class="data-source-switch"
+                role="group"
+                aria-label="Matchup data source"
+              >
+                <button type="button" data-data-mode="auto">Auto</button>
+                <button type="button" data-data-mode="opendota">
+                  OpenDota
+                </button>
+                <button type="button" data-data-mode="local">Local</button>
+              </div>
+            </div>
             <div id="patch-status" class="patch-status" aria-live="polite">
               Checking patch data...
-            </div>
-            <div class="draft-summary">
-              <div class="draft-summary__label">Active slot</div>
-              <div id="active-slot-label" class="draft-summary__value">
-              Enemy team 1
-              </div>
-              <p class="draft-summary__copy">
-              Select an enemy slot, then search and assign a hero there.
-              </p>
             </div>
           </div>
         </div>
@@ -46,7 +52,7 @@
 
         <div class="draft-tools">
           <label class="search">
-            <span class="search__label">Search hero</span>
+            <span class="search__label">Hero Picker</span>
             <input
               id="hero-search"
               type="search"
@@ -61,18 +67,6 @@
             class="suggestions"
             aria-live="polite"
           ></div>
-
-          <div class="filter-block">
-            <div class="filter-block__header">
-              <p class="panel__eyebrow">Recommendation filter</p>
-              <span class="filter-block__hint">Optional</span>
-            </div>
-            <div
-              id="role-filters"
-              class="chips"
-              aria-label="Role filters"
-            ></div>
-          </div>
         </div>
       </section>
 
@@ -88,11 +82,11 @@
         <div id="draft-snapshot" class="draft-snapshot empty-state">
           <div>
             <p class="empty-state__eyebrow">Waiting for the draft</p>
-              <h3>Select enemy heroes to generate your five role picks.</h3>
+            <h3>Select enemy heroes to generate your five role picks.</h3>
             <p>
               Pick the enemy lineup on the left. The assistant generates your
-              five role-based picks on the right and scores counters and
-              synergy in the browser.
+              five role-based picks on the right and scores counters and synergy
+              in the browser.
             </p>
           </div>
         </div>
