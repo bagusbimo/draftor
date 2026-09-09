@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Dota 2 draft assistant that scores picks for synergy and counters."
+    />
+    <title>Draftor</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="module" src="./app.js"></script>
+  </head>
+  <body>
+    <div class="backdrop backdrop-a"></div>
+    <div class="backdrop backdrop-b"></div>
+    <main class="shell">
+      <section class="panel panel--draft">
+        <div class="panel__header panel__header--split">
+          <div>
+            <p class="panel__eyebrow">Captains mode</p>
+            <h1>Pick then Counter</h1>
+          </div>
+          <div class="header-meta">
+            <div id="patch-status" class="patch-status" aria-live="polite">
+              Checking patch data...
+            </div>
+            <div class="draft-summary">
+              <div class="draft-summary__label">Active slot</div>
+              <div id="active-slot-label" class="draft-summary__value">
+              Enemy team 1
+              </div>
+              <p class="draft-summary__copy">
+              Select an enemy slot, then search and assign a hero there.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div
+          id="draft-board"
+          class="draft-board"
+          aria-label="Draft board"
+        ></div>
+
+        <div class="draft-tools">
+          <label class="search">
+            <span class="search__label">Search hero</span>
+            <input
+              id="hero-search"
+              type="search"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Type a hero name for the active slot"
+            />
+          </label>
+
+          <div
+            id="hero-suggestions"
+            class="suggestions"
+            aria-live="polite"
+          ></div>
+
+          <div class="filter-block">
+            <div class="filter-block__header">
+              <p class="panel__eyebrow">Recommendation filter</p>
+              <span class="filter-block__hint">Optional</span>
+            </div>
+            <div
+              id="role-filters"
+              class="chips"
+              aria-label="Role filters"
+            ></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel panel--results">
+        <div class="panel__header panel__header--split">
+          <div>
+            <p class="panel__eyebrow">Recommendation panel</p>
+            <h2>Alternative picks</h2>
+          </div>
+          <div id="status-pill" class="status-pill">Loading hero data...</div>
+        </div>
+
+        <div id="draft-snapshot" class="draft-snapshot empty-state">
+          <div>
+            <p class="empty-state__eyebrow">Waiting for the draft</p>
+              <h3>Select enemy heroes to generate your five role picks.</h3>
+            <p>
+              Pick the enemy lineup on the left. The assistant generates your
+              five role-based picks on the right and scores counters and
+              synergy in the browser.
+            </p>
+          </div>
+        </div>
+
+        <div id="recommendations" class="recommendations"></div>
+      </section>
+    </main>
+  </body>
+</html>
