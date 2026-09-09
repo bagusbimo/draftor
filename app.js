@@ -364,6 +364,18 @@ function renderDraftBoard() {
             <div class="team-slot__role">${index + 1}. ${escapeHTML(draftRole.label)} · ${escapeHTML(draftRole.lane)}</div>
             <div class="team-slot__meta">${escapeHTML(hero.roles.slice(0, 2).join(" • "))}</div>
             ${suggestion ? `<div class="team-slot__reason">${escapeHTML(suggestion.explanation)}</div>` : ""}
+            ${suggestion?.alternatives?.length ? `
+              <div class="team-slot__alternatives">
+                <span class="team-slot__alternatives-label">Alternatives</span>
+                <div class="team-slot__alternative-list">
+                  ${suggestion.alternatives.map((alternative) => `
+                    <span class="team-slot__alternative" title="${escapeHTML(alternative.hero.localized_name)}">
+                      <img src="${heroImage(alternative.hero)}" alt="${escapeHTML(alternative.hero.localized_name)}" loading="lazy" />
+                    </span>
+                  `).join("")}
+                </div>
+              </div>
+            ` : ""}
           </div>
           ${editable ? '<span class="team-slot__clear" title="Clear slot">×</span>' : '<span class="team-slot__generated-mark">AI</span>'}
         `
@@ -693,10 +705,12 @@ function generateSuggestedLineup(enemyHeroes) {
     const selection = selectRoleCandidate(candidates, draftRole);
     const best = selection.candidate;
     if (best) {
+      const roleCandidates = getRoleCandidatePool(candidates, draftRole);
       generatedSlots[index] = best.hero.id;
       generatedPicks[index] = {
         ...best,
         role: draftRole,
+        alternatives: roleCandidates.filter((candidate) => candidate.hero.id !== best.hero.id).slice(0, 3),
         explanation: selection.reason ? `${best.explanation} ${selection.reason}` : best.explanation,
       };
       selectedAllies.push(best.hero);
@@ -704,7 +718,20 @@ function generateSuggestedLineup(enemyHeroes) {
     }
   }
 
+  const generatedIds = new Set(generatedSlots.filter(Boolean));
+  for (const pick of generatedPicks) {
+    if (pick) {
+      pick.alternatives = pick.alternatives.filter((alternative) => !generatedIds.has(alternative.hero.id));
+    }
+  }
+
   return { slots: generatedSlots, picks: generatedPicks };
+}
+
+function getRoleCandidatePool(candidates, draftRole) {
+  if (!["soft-support", "hard-support"].includes(draftRole.role)) return candidates;
+  const supportCandidates = candidates.filter((candidate) => isSupportSlotCandidate(candidate.hero));
+  return supportCandidates.length ? supportCandidates : candidates;
 }
 
 function selectRoleCandidate(candidates, draftRole) {
